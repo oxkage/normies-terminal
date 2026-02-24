@@ -1,36 +1,61 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// Mock data generator for 40x40 grid (1600 chars)
-const generateMockGrid = (seed) => {
-  let grid = "";
-  const centerX = 20;
-  const centerY = 20;
-  
-  // Use simple pseudo-random based on seed
-  const numSeed = parseInt(seed) || 1234;
-
+// --- NORMIE PROTOCOL DECODER ---
+// Decodes 200 bytes (1600 bits) into a flat array of 0s and 1s
+// Format: 40x40, 1 bit per pixel, MSB first
+const decodeNormieData = (uint8Array) => {
+  const pixels = [];
   for (let y = 0; y < 40; y++) {
     for (let x = 0; x < 40; x++) {
-      const dist = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
-      let char = "0";
+      const flatIndex = y * 40 + x;
+      const byteIndex = flatIndex >> 3;      // integer division by 8
+      const bitPos = 7 - (flatIndex & 7);    // MSB first
       
-      // Pattern logic: Concentric rings + interference
-      const ring = Math.floor(dist);
-      const interference = (x + y + numSeed) % 7 === 0;
+      const byte = uint8Array[byteIndex];
+      const pixel = (byte >> bitPos) & 1;
       
-      if (dist < 18) {
-        if (ring % 3 === 0 || interference) {
-           char = "1";
-        }
-      }
-      
-      // Border frame
-      if (x === 0 || x === 39 || y === 0 || y === 39) char = "1";
-
-      grid += char;
+      pixels.push(pixel);
     }
   }
-  return grid;
+  return pixels; // Returns Array(1600) of 0 or 1
+};
+
+// --- MOCK DATA GENERATOR (Simulates API Response) ---
+// Generates a Uint8Array(200) representing a 40x40 image
+const generateMockBytes = (seed) => {
+  const bytes = new Uint8Array(200);
+  const numSeed = parseInt(seed) || 1234;
+  
+  // Draw a pattern directly into bits
+  for (let i = 0; i < 1600; i++) {
+    const x = i % 40;
+    const y = Math.floor(i / 40);
+    
+    // Simple generative art logic
+    const cx = 20;
+    const cy = 20;
+    const dist = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
+    
+    let isPixelOn = 0;
+    
+    // Pattern: Rings + "Glitch" noise based on seed
+    if (dist < 18 && dist > 2) {
+       if (Math.floor(dist) % 2 === 0) isPixelOn = 1;
+    }
+    // Add some random noise
+    if (((x * y) + numSeed) % 17 === 0) isPixelOn = 1;
+    
+    // Border
+    if (x === 0 || x === 39 || y === 0 || y === 39) isPixelOn = 1;
+
+    // Write bit to byte array
+    if (isPixelOn) {
+      const byteIndex = i >> 3;
+      const bitPos = 7 - (i & 7);
+      bytes[byteIndex] |= (1 << bitPos);
+    }
+  }
+  return bytes;
 };
 
 const MOCK_TRAITS = [
@@ -43,16 +68,15 @@ const MOCK_TRAITS = [
 
 function App() {
   const [inputVal, setInputVal] = useState("");
-  const [gridData, setGridData] = useState(null); // String of 1600 '0's and '1's
+  const [gridData, setGridData] = useState(null); // Array of 1600 ints (0 or 1)
   const [loading, setLoading] = useState(false);
   const [traitsLog, setTraitsLog] = useState([]);
   const [isNoir, setIsNoir] = useState(false);
   const inputRef = useRef(null);
 
-  // Focus input on click anywhere
+  // Focus input on click anywhere (unless clicking button)
   useEffect(() => {
     const handleClick = (e) => {
-        // Prevent focus stealing if clicking buttons or interactive elements
         if (e.target.tagName === 'BUTTON' || e.target.tagName === 'A') return;
         inputRef.current?.focus();
     };
@@ -60,14 +84,13 @@ function App() {
     return () => document.removeEventListener("click", handleClick);
   }, []);
 
-  // Sync body background color based on theme to prevent white flashes
+  // Sync body background color
   useEffect(() => {
       document.body.style.backgroundColor = isNoir ? '#1a1a1a' : '#e3e5e4';
   }, [isNoir]);
 
   const handleInputChange = (e) => {
     const val = e.target.value;
-    // Only allow numbers, max 4 chars
     if (/^\d{0,4}$/.test(val)) {
       setInputVal(val);
     }
@@ -81,13 +104,18 @@ function App() {
     setGridData(null);
     setTraitsLog([]);
 
-    // Simulate API Fetch / Processing
+    // Simulate API Latency
     setTimeout(() => {
-      const mock = generateMockGrid(inputVal);
-      setGridData(mock);
+      // 1. Get raw bytes (simulating API fetch of 200 bytes)
+      const rawBytes = generateMockBytes(inputVal);
+      
+      // 2. Decode using the specified formula
+      const decodedPixels = decodeNormieData(rawBytes);
+      
+      setGridData(decodedPixels);
       setLoading(false);
       startTraitTyping();
-    }, 1200);
+    }, 1000);
   };
 
   const startTraitTyping = () => {
@@ -98,7 +126,6 @@ function App() {
         return;
       }
       setTraitsLog(prev => {
-          // Safety check to avoid duplication if interval runs fast
           if (prev.length > index) return prev;
           return [...prev, MOCK_TRAITS[index]];
       });
@@ -108,14 +135,11 @@ function App() {
 
   const copyToClipboard = () => {
     if (!gridData) return;
-    
-    // Convert grid data to actual copyable text art
     let art = "";
     for (let i = 0; i < 1600; i++) {
-      art += gridData[i] === "1" ? "█" : " "; // Use space for empty to keep alignment in most editors
+      art += gridData[i] === 1 ? "█" : " ";
       if ((i + 1) % 40 === 0) art += "\n";
     }
-    
     navigator.clipboard.writeText(art).then(() => {
       alert("ASCII ART COPIED TO SYSTEM CLIPBOARD");
     });
@@ -129,7 +153,7 @@ function App() {
 
   return (
     <div 
-      className={`min-h-screen w-full flex flex-col items-center font-terminal text-xl md:text-2xl transition-colors duration-300 p-4 md:p-8
+      className={`min-h-screen w-full flex flex-col items-center font-terminal text-xl md:text-2xl transition-colors duration-0 p-4 md:p-8
       ${isNoir ? 'bg-[#1a1a1a] text-[#e3e5e4]' : 'bg-[#e3e5e4] text-[#48494b]'}`}
     >
       
@@ -160,7 +184,6 @@ function App() {
               className="bg-transparent border-none outline-none w-24 caret-transparent uppercase p-0 m-0 font-inherit text-inherit"
               autoFocus
             />
-            {/* Custom Blinking Cursor Block */}
             <span className="absolute top-0 left-0 pointer-events-none flex items-center h-full">
               {inputVal}
               <span className="animate-blink inline-block bg-current w-[0.6em] h-[1em] ml-1"></span>
@@ -169,57 +192,46 @@ function App() {
         </form>
       </div>
 
-      {/* MAIN DISPLAY (THE BOX) */}
+      {/* MAIN DISPLAY */}
       <div className="w-full max-w-2xl flex flex-col md:flex-row gap-8 items-start">
         
-        {/* ASCII RENDERER - FIXED SIZE CONTAINER */}
-        <div className="border-2 border-current p-2 w-full md:w-auto flex justify-center bg-black/5 min-h-[340px] md:min-h-[420px]">
+        {/* ART RENDERER */}
+        <div className="border-2 border-current p-2 w-full md:w-auto flex justify-center bg-black/5 min-h-[340px]">
           {loading ? (
-            <div className="w-[320px] h-[320px] md:w-[400px] md:h-[400px] flex items-center justify-center animate-pulse">
+            <div className="w-[320px] h-[320px] flex items-center justify-center animate-pulse">
               LOADING_DATA_CHUNKS...
             </div>
           ) : gridData ? (
+            // FORCE EXACT GRID DIMENSIONS
             <div 
-              className="grid"
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(40, 1fr)',
-                width: '320px', // Mobile fixed width
-                height: '320px', // Mobile fixed height (square)
+                width: '320px',
+                height: '320px',
+                lineHeight: 1
               }}
+              className="bg-transparent"
             >
-              {/* Responsive scaling via CSS media queries inline or class */}
-              <style>{`
-                @media (min-width: 768px) {
-                  .grid-art-container {
-                    width: 400px !important;
-                    height: 400px !important;
-                  }
-                }
-              `}</style>
-              <div 
-                className="grid-art-container grid grid-cols-[repeat(40,1fr)] w-[320px] h-[320px]"
-              >
-                  {gridData.split('').map((char, idx) => (
-                    <div 
-                        key={idx} 
-                        className="flex items-center justify-center w-full h-full text-[8px] md:text-[10px] leading-none select-none"
-                    >
-                      {char === "1" ? "█" : "·"}
-                    </div>
-                  ))}
-              </div>
+              {gridData.map((pixel, idx) => (
+                <div 
+                    key={idx} 
+                    className="w-full h-full flex items-center justify-center text-[8px] select-none"
+                    style={{ aspectRatio: '1/1' }}
+                >
+                  {pixel === 1 ? "█" : "·"}
+                </div>
+              ))}
             </div>
           ) : (
-            <div className="w-[320px] h-[320px] md:w-[400px] md:h-[400px] flex items-center justify-center text-center opacity-50 border border-dashed border-current">
+            <div className="w-[320px] h-[320px] flex items-center justify-center text-center opacity-50 border border-dashed border-current">
               [NO SIGNAL]<br/>WAITING FOR INPUT
             </div>
           )}
         </div>
 
-        {/* LOG TRAITS & ACTIONS */}
+        {/* METADATA LOG */}
         <div className="flex-1 w-full space-y-4">
-          
           <div className="min-h-[200px] border-l-2 border-current pl-4 flex flex-col gap-1 text-base md:text-xl">
             <span className="border-b border-current w-fit mb-2">Metadata Log:</span>
             
@@ -255,12 +267,10 @@ function App() {
               </button>
             </div>
           )}
-          
         </div>
       </div>
-
     </div>
-  )
+  );
 }
 
-export default App
+export default App;
