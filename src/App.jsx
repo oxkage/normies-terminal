@@ -160,7 +160,7 @@ function App() {
     // Always use Braille for Twitter intent because Blocks are too large
     const art = encodeToBraille(gridData);
     
-    const text = `${art}\n\nNORMIE #${inputVal} // ${typeTrait}\napi.normies.art`;
+    const text = `${art}\n\nNORMIE #${inputVal} // ${typeTrait}\n\nTerm: https://normies-terminal.vercel.app/`;
     const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
   };
