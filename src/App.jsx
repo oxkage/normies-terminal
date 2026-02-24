@@ -1,21 +1,33 @@
 import React, { useState, useEffect, useRef } from 'react';
 
 // Mock data generator for 40x40 grid (1600 chars)
-const generateMockGrid = () => {
+const generateMockGrid = (seed) => {
   let grid = "";
-  for (let i = 0; i < 1600; i++) {
-    // Generate a crude pattern (circle-ish)
-    const x = i % 40;
-    const y = Math.floor(i / 40);
-    const cx = 20;
-    const cy = 20;
-    const dist = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
-    
-    // Add some noise and shape
-    if (dist < 15 && Math.random() > 0.2) {
-      grid += "1";
-    } else {
-      grid += "0";
+  const centerX = 20;
+  const centerY = 20;
+  
+  // Use simple pseudo-random based on seed
+  const numSeed = parseInt(seed) || 1234;
+
+  for (let y = 0; y < 40; y++) {
+    for (let x = 0; x < 40; x++) {
+      const dist = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+      let char = "0";
+      
+      // Pattern logic: Concentric rings + interference
+      const ring = Math.floor(dist);
+      const interference = (x + y + numSeed) % 7 === 0;
+      
+      if (dist < 18) {
+        if (ring % 3 === 0 || interference) {
+           char = "1";
+        }
+      }
+      
+      // Border frame
+      if (x === 0 || x === 39 || y === 0 || y === 39) char = "1";
+
+      grid += char;
     }
   }
   return grid;
@@ -39,10 +51,19 @@ function App() {
 
   // Focus input on click anywhere
   useEffect(() => {
-    const handleClick = () => inputRef.current?.focus();
+    const handleClick = (e) => {
+        // Prevent focus stealing if clicking buttons or interactive elements
+        if (e.target.tagName === 'BUTTON' || e.target.tagName === 'A') return;
+        inputRef.current?.focus();
+    };
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
   }, []);
+
+  // Sync body background color based on theme to prevent white flashes
+  useEffect(() => {
+      document.body.style.backgroundColor = isNoir ? '#1a1a1a' : '#e3e5e4';
+  }, [isNoir]);
 
   const handleInputChange = (e) => {
     const val = e.target.value;
@@ -62,11 +83,11 @@ function App() {
 
     // Simulate API Fetch / Processing
     setTimeout(() => {
-      const mock = generateMockGrid();
+      const mock = generateMockGrid(inputVal);
       setGridData(mock);
       setLoading(false);
       startTraitTyping();
-    }, 800);
+    }, 1200);
   };
 
   const startTraitTyping = () => {
@@ -76,9 +97,13 @@ function App() {
         clearInterval(interval);
         return;
       }
-      setTraitsLog(prev => [...prev, MOCK_TRAITS[index]]);
+      setTraitsLog(prev => {
+          // Safety check to avoid duplication if interval runs fast
+          if (prev.length > index) return prev;
+          return [...prev, MOCK_TRAITS[index]];
+      });
       index++;
-    }, 400); // Line by line typing effect
+    }, 300); 
   };
 
   const copyToClipboard = () => {
@@ -87,7 +112,7 @@ function App() {
     // Convert grid data to actual copyable text art
     let art = "";
     for (let i = 0; i < 1600; i++) {
-      art += gridData[i] === "1" ? "█" : " ";
+      art += gridData[i] === "1" ? "█" : " "; // Use space for empty to keep alignment in most editors
       if ((i + 1) % 40 === 0) art += "\n";
     }
     
@@ -103,17 +128,20 @@ function App() {
   };
 
   return (
-    <div className={`min-h-screen w-full p-4 md:p-8 flex flex-col items-center font-terminal text-xl md:text-2xl transition-colors duration-0 ${isNoir ? 'noir-mode' : ''}`}>
+    <div 
+      className={`min-h-screen w-full flex flex-col items-center font-terminal text-xl md:text-2xl transition-colors duration-300 p-4 md:p-8
+      ${isNoir ? 'bg-[#1a1a1a] text-[#e3e5e4]' : 'bg-[#e3e5e4] text-[#48494b]'}`}
+    >
       
       {/* HEADER */}
-      <div className="w-full max-w-2xl mb-8 flex justify-between items-start">
+      <div className="w-full max-w-2xl mb-8 flex justify-between items-start select-none">
         <div className="flex flex-col">
           <span>NORMIE_OS v1.0.0 // TERMINAL ACCESS</span>
           <span className="text-sm opacity-70">MEM: 640KB OK</span>
         </div>
         <button 
           onClick={() => setIsNoir(!isNoir)} 
-          className="border border-current px-2 hover:bg-[#48494b] hover:text-[#e3e5e4] transition-colors"
+          className="border border-current px-2 hover:opacity-80 transition-opacity"
         >
           [{isNoir ? 'NOIR: ON' : 'NOIR: OFF'}]
         </button>
@@ -129,13 +157,13 @@ function App() {
               type="text"
               value={inputVal}
               onChange={handleInputChange}
-              className="bg-transparent border-none outline-none w-24 caret-transparent uppercase"
+              className="bg-transparent border-none outline-none w-24 caret-transparent uppercase p-0 m-0 font-inherit text-inherit"
               autoFocus
             />
             {/* Custom Blinking Cursor Block */}
-            <span className="absolute top-0 left-0 pointer-events-none">
+            <span className="absolute top-0 left-0 pointer-events-none flex items-center h-full">
               {inputVal}
-              <span className="animate-blink inline-block bg-current w-3 h-5 md:w-4 md:h-6 align-middle ml-1"></span>
+              <span className="animate-blink inline-block bg-current w-[0.6em] h-[1em] ml-1"></span>
             </span>
           </div>
         </form>
@@ -144,22 +172,43 @@ function App() {
       {/* MAIN DISPLAY (THE BOX) */}
       <div className="w-full max-w-2xl flex flex-col md:flex-row gap-8 items-start">
         
-        {/* ASCII RENDERER */}
-        <div className="border-2 border-current p-2 w-full md:w-auto flex justify-center bg-opacity-10 bg-black/5">
+        {/* ASCII RENDERER - FIXED SIZE CONTAINER */}
+        <div className="border-2 border-current p-2 w-full md:w-auto flex justify-center bg-black/5 min-h-[340px] md:min-h-[420px]">
           {loading ? (
             <div className="w-[320px] h-[320px] md:w-[400px] md:h-[400px] flex items-center justify-center animate-pulse">
               LOADING_DATA_CHUNKS...
             </div>
           ) : gridData ? (
             <div 
-              className="grid grid-cols-[repeat(40,1fr)] leading-none"
-              style={{ width: 'fit-content' }}
+              className="grid"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(40, 1fr)',
+                width: '320px', // Mobile fixed width
+                height: '320px', // Mobile fixed height (square)
+              }}
             >
-              {gridData.split('').map((char, idx) => (
-                <span key={idx} className="w-2 h-2 md:w-2.5 md:h-2.5 flex items-center justify-center">
-                  {char === "1" ? "█" : "·"}
-                </span>
-              ))}
+              {/* Responsive scaling via CSS media queries inline or class */}
+              <style>{`
+                @media (min-width: 768px) {
+                  .grid-art-container {
+                    width: 400px !important;
+                    height: 400px !important;
+                  }
+                }
+              `}</style>
+              <div 
+                className="grid-art-container grid grid-cols-[repeat(40,1fr)] w-[320px] h-[320px]"
+              >
+                  {gridData.split('').map((char, idx) => (
+                    <div 
+                        key={idx} 
+                        className="flex items-center justify-center w-full h-full text-[8px] md:text-[10px] leading-none select-none"
+                    >
+                      {char === "1" ? "█" : "·"}
+                    </div>
+                  ))}
+              </div>
             </div>
           ) : (
             <div className="w-[320px] h-[320px] md:w-[400px] md:h-[400px] flex items-center justify-center text-center opacity-50 border border-dashed border-current">
@@ -171,7 +220,7 @@ function App() {
         {/* LOG TRAITS & ACTIONS */}
         <div className="flex-1 w-full space-y-4">
           
-          <div className="min-h-[200px] border-l-2 border-current pl-4 flex flex-col gap-1">
+          <div className="min-h-[200px] border-l-2 border-current pl-4 flex flex-col gap-1 text-base md:text-xl">
             <span className="border-b border-current w-fit mb-2">Metadata Log:</span>
             
             {loading && <div>> DECRYPTING_METADATA...</div>}
@@ -194,15 +243,15 @@ function App() {
             <div className="flex flex-col gap-2 mt-4 pt-4 border-t border-current border-dashed">
               <button 
                 onClick={copyToClipboard}
-                className="text-left hover:bg-[#48494b] hover:text-[#e3e5e4] px-1 transition-colors"
+                className="text-left hover:bg-current hover:text-[var(--bg-color)] px-1 transition-colors group"
               >
-                [Y] COPY_TO_CLIPBOARD
+                <span className="group-hover:text-inherit">[Y] COPY_TO_CLIPBOARD</span>
               </button>
               <button 
                 onClick={postToX}
-                className="text-left hover:bg-[#48494b] hover:text-[#e3e5e4] px-1 transition-colors"
+                className="text-left hover:bg-current hover:text-[var(--bg-color)] px-1 transition-colors group"
               >
-                [X] POST_TO_X
+                <span className="group-hover:text-inherit">[X] POST_TO_X</span>
               </button>
             </div>
           )}

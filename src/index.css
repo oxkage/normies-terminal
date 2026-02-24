@@ -2,35 +2,28 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --bg-color: #e3e5e4;
-  --text-color: #48494b;
+@layer utilities {
+  .font-terminal {
+    font-family: 'VT323', monospace;
+  }
 }
 
+/* Reset basics */
 body {
   margin: 0;
-  background-color: var(--bg-color);
-  color: var(--text-color);
-  font-family: 'VT323', monospace;
+  padding: 0;
   overflow-x: hidden;
 }
 
-/* Custom scrollbar to match aesthetic */
+/* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 10px;
 }
-
 ::-webkit-scrollbar-track {
-  background: var(--bg-color);
+  background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: var(--text-color);
-  border: 2px solid var(--bg-color);
-}
-
-.noir-mode {
-  --bg-color: #1a1a1a;
-  --text-color: #e3e5e4;
-  filter: invert(1) hue-rotate(180deg);
+  background: currentColor;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
