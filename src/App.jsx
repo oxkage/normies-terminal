@@ -1,17 +1,50 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// --- API ENDPOINTS ---
-const API_BASE = "https://api.normies.art";
+// --- BRAILLE ENCODER (COMPRESSION) ---
+// Compresses 40x40 grid into 20x10 Braille characters (200 chars total)
+// This fits within Twitter's 280 char limit!
+const encodeToBraille = (pixels) => {
+  let output = "";
+  // Braille pattern: 2 columns x 4 rows per character
+  // iterate grid in 4-row chunks, then 2-col chunks
+  for (let y = 0; y < 40; y += 4) {
+    for (let x = 0; x < 40; x += 2) {
+      let byte = 0;
+      
+      // Map pixel positions to Braille bitmask offsets
+      // (0,0)=1, (0,1)=2, (0,2)=4, (1,0)=8, (1,1)=16, (1,2)=32, (0,3)=64, (1,3)=128
+      
+      // Col 1
+      if (pixels[(y + 0) * 40 + (x + 0)]) byte |= 1;
+      if (pixels[(y + 1) * 40 + (x + 0)]) byte |= 2;
+      if (pixels[(y + 2) * 40 + (x + 0)]) byte |= 4;
+      if (pixels[(y + 3) * 40 + (x + 0)]) byte |= 64;
+      
+      // Col 2
+      if (pixels[(y + 0) * 40 + (x + 1)]) byte |= 8;
+      if (pixels[(y + 1) * 40 + (x + 1)]) byte |= 16;
+      if (pixels[(y + 2) * 40 + (x + 1)]) byte |= 32;
+      if (pixels[(y + 3) * 40 + (x + 1)]) byte |= 128;
+      
+      // Unicode Braille base is 0x2800
+      output += String.fromCharCode(0x2800 + byte);
+    }
+    output += "\n";
+  }
+  return output;
+};
 
 function App() {
   const [inputVal, setInputVal] = useState("");
   const [gridData, setGridData] = useState(null); // Array of 1600 ints (0 or 1)
   const [loading, setLoading] = useState(false);
   const [traitsLog, setTraitsLog] = useState([]);
-  const [fullTraits, setFullTraits] = useState([]); // Store fetched traits to type out
+  const [fullTraits, setFullTraits] = useState([]);
   const [isNoir, setIsNoir] = useState(false);
+  const [outputMode, setOutputMode] = useState("BLOCKS"); // BLOCKS | BRAILLE
   const inputRef = useRef(null);
 
+  // ... (existing useEffects) ...
   // Focus input on click anywhere (unless clicking button)
   useEffect(() => {
     const handleClick = (e) => {
@@ -27,6 +60,7 @@ function App() {
       document.body.style.backgroundColor = isNoir ? '#1a1a1a' : '#e3e5e4';
   }, [isNoir]);
 
+  // ... (existing handlers: handleInputChange, handleSubmit, startTraitTyping) ...
   const handleInputChange = (e) => {
     const val = e.target.value;
     if (/^\d{0,4}$/.test(val)) {
@@ -44,7 +78,6 @@ function App() {
     setFullTraits([]);
 
     try {
-        // Parallel Fetch: Pixels & Traits
         const [pixelsRes, traitsRes] = await Promise.all([
             fetch(`${API_BASE}/normie/${inputVal}/pixels`),
             fetch(`${API_BASE}/normie/${inputVal}/traits`)
@@ -52,24 +85,18 @@ function App() {
 
         if (!pixelsRes.ok || !traitsRes.ok) throw new Error("DATA_CORRUPT");
 
-        // 1. Process Pixels (text/plain string of 1600 chars)
         const pixelsText = await pixelsRes.text();
-        // Convert "00101" string to [0, 0, 1, 0, 1] integer array
         const pixelsArray = pixelsText.split('').map(char => parseInt(char, 10));
 
-        // 2. Process Traits (JSON)
         const traitsJson = await traitsRes.json();
         const formattedTraits = traitsJson.attributes.map(attr => ({
             label: attr.trait_type.toUpperCase(),
             value: attr.value.toString().toUpperCase()
         }));
 
-        // Render Start
         setGridData(pixelsArray);
         setFullTraits(formattedTraits);
         setLoading(false);
-        
-        // Start typing effect after data is ready
         startTraitTyping(formattedTraits);
 
     } catch (err) {
@@ -82,37 +109,49 @@ function App() {
 
   const startTraitTyping = (traitsToType) => {
     let index = 0;
-    // Clear any existing log first
     setTraitsLog([]);
-    
     const interval = setInterval(() => {
       if (index >= traitsToType.length) {
         clearInterval(interval);
         return;
       }
-      // Capture current trait to add
       const currentTrait = traitsToType[index];
       setTraitsLog(prev => [...prev, currentTrait]);
       index++;
-    }, 200); // Fast typing speed
+    }, 200);
   };
 
+  // --- NEW COPY LOGIC ---
   const copyToClipboard = () => {
     if (!gridData) return;
-    let art = "";
-    for (let i = 0; i < 1600; i++) {
-      art += gridData[i] === 1 ? "█" : " ";
-      if ((i + 1) % 40 === 0) art += "\n";
+    
+    let textToCopy = "";
+
+    if (outputMode === "BLOCKS") {
+      // Optimized for Discord Code Blocks
+      textToCopy = "```\n";
+      for (let i = 0; i < 1600; i++) {
+        textToCopy += gridData[i] === 1 ? "█" : " ";
+        if ((i + 1) % 40 === 0) textToCopy += "\n";
+      }
+      textToCopy += "```";
+      alert("COPIED RAW BLOCKS (BEST FOR DISCORD)");
+    } else {
+      // Optimized for Twitter/Telegram (Braille)
+      textToCopy = encodeToBraille(gridData);
+      alert("COPIED BRAILLE COMPRESSED (BEST FOR X/TELEGRAM)");
     }
-    navigator.clipboard.writeText(art).then(() => {
-      alert("ASCII ART COPIED TO SYSTEM CLIPBOARD");
-    });
+    
+    navigator.clipboard.writeText(textToCopy);
   };
 
   const postToX = () => {
-    // Safety check if traits haven't loaded
     const typeTrait = fullTraits.find(t => t.label === "TYPE")?.value || "UNKNOWN";
-    const text = `NORMIE #${inputVal} DETECTED.\n\nTYPE: ${typeTrait}\n\nVia NORMIE_OS v1.0.0`;
+    
+    // Always use Braille for Twitter intent because Blocks are too large
+    const art = encodeToBraille(gridData);
+    
+    const text = `${art}\n\nNORMIE #${inputVal} // ${typeTrait}\napi.normies.art`;
     const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
   };
@@ -168,7 +207,6 @@ function App() {
               ACCESSING_CHAIN_DATA...
             </div>
           ) : gridData ? (
-            // FORCE EXACT GRID DIMENSIONS
             <div 
               style={{
                 display: 'grid',
@@ -219,6 +257,15 @@ function App() {
           {/* ACTION BUTTONS */}
           {!loading && gridData && (
             <div className="flex flex-col gap-2 mt-4 pt-4 border-t border-current border-dashed">
+              <div className="flex gap-4 mb-2">
+                 <button 
+                  onClick={() => setOutputMode(outputMode === "BLOCKS" ? "BRAILLE" : "BLOCKS")}
+                  className="text-sm opacity-70 hover:opacity-100"
+                 >
+                   [MODE: {outputMode}]
+                 </button>
+              </div>
+
               <button 
                 onClick={copyToClipboard}
                 className="text-left hover:bg-current hover:text-[var(--bg-color)] px-1 transition-colors group"
@@ -229,7 +276,7 @@ function App() {
                 onClick={postToX}
                 className="text-left hover:bg-current hover:text-[var(--bg-color)] px-1 transition-colors group"
               >
-                <span className="group-hover:text-inherit">[X] POST_TO_X</span>
+                <span className="group-hover:text-inherit">[X] POST_TO_X (BRAILLE)</span>
               </button>
             </div>
           )}
