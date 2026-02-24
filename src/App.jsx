@@ -160,7 +160,7 @@ function App() {
     // Always use Braille for Twitter intent because Blocks are too large
     const art = encodeToBraille(gridData);
     
-    const text = `${art}\n\nNORMIE #${inputVal} // ${typeTrait}\n\nTerm: https://normies-terminal.vercel.app/\n@oxkagee`;
+    const text = `${art}\n\nNORMIE #${inputVal} // ${typeTrait}\n\nTerm: https://normies-terminal.vercel.app/`;
     const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
   };
@@ -303,6 +303,14 @@ function App() {
           )}
         </div>
       </div>
+      
+      {/* FOOTER */}
+      <div className="mt-12 text-sm opacity-40 hover:opacity-100 transition-opacity">
+        <a href="https://x.com/oxkagee" target="_blank" rel="noopener noreferrer" className="hover:underline">
+          [BUILT BY @OXKAGEE]
+        </a>
+      </div>
+
     </div>
   );
 }
