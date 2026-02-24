@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/normie/:path*",
+      "destination": "https://api.normies.art/normie/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

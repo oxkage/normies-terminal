@@ -34,6 +34,9 @@ const encodeToBraille = (pixels) => {
   return output;
 };
 
+// Use relative path for Vercel/Vite Proxy to handle CORS
+const API_BASE = "/api/normie";
+
 function App() {
   const [inputVal, setInputVal] = useState("");
   const [gridData, setGridData] = useState(null); // Array of 1600 ints (0 or 1)
@@ -42,9 +45,9 @@ function App() {
   const [fullTraits, setFullTraits] = useState([]);
   const [isNoir, setIsNoir] = useState(false);
   const [outputMode, setOutputMode] = useState("BLOCKS"); // BLOCKS | BRAILLE
+  const [errorMsg, setErrorMsg] = useState(null);
   const inputRef = useRef(null);
 
-  // ... (existing useEffects) ...
   // Focus input on click anywhere (unless clicking button)
   useEffect(() => {
     const handleClick = (e) => {
@@ -60,11 +63,11 @@ function App() {
       document.body.style.backgroundColor = isNoir ? '#1a1a1a' : '#e3e5e4';
   }, [isNoir]);
 
-  // ... (existing handlers: handleInputChange, handleSubmit, startTraitTyping) ...
   const handleInputChange = (e) => {
     const val = e.target.value;
     if (/^\d{0,4}$/.test(val)) {
       setInputVal(val);
+      setErrorMsg(null);
     }
   };
 
@@ -76,14 +79,22 @@ function App() {
     setGridData(null);
     setTraitsLog([]);
     setFullTraits([]);
+    setErrorMsg(null);
 
     try {
+        // Parallel Fetch: Pixels & Traits
+        // Uses relative path proxied by Vite/Vercel to avoid CORS
         const [pixelsRes, traitsRes] = await Promise.all([
-            fetch(`${API_BASE}/normie/${inputVal}/pixels`),
-            fetch(`${API_BASE}/normie/${inputVal}/traits`)
+            fetch(`${API_BASE}/${inputVal}/pixels`),
+            fetch(`${API_BASE}/${inputVal}/traits`)
         ]);
 
-        if (!pixelsRes.ok || !traitsRes.ok) throw new Error("DATA_CORRUPT");
+        if (pixelsRes.status === 404 || traitsRes.status === 404) {
+            throw new Error("ID_NOT_FOUND");
+        }
+        if (!pixelsRes.ok || !traitsRes.ok) {
+            throw new Error(`API_ERROR_${pixelsRes.status}`);
+        }
 
         const pixelsText = await pixelsRes.text();
         const pixelsArray = pixelsText.split('').map(char => parseInt(char, 10));
@@ -102,8 +113,7 @@ function App() {
     } catch (err) {
         console.error(err);
         setLoading(false);
-        alert("ERROR: TOKEN_ID_NOT_FOUND_ON_CHAIN");
-        setInputVal("");
+        setErrorMsg(err.message || "UNKNOWN_ERROR");
     }
   };
 
@@ -121,7 +131,6 @@ function App() {
     }, 200);
   };
 
-  // --- NEW COPY LOGIC ---
   const copyToClipboard = () => {
     if (!gridData) return;
     
@@ -178,22 +187,29 @@ function App() {
 
       {/* INPUT AREA */}
       <div className="w-full max-w-2xl mb-8">
-        <form onSubmit={handleSubmit} className="flex items-center gap-2">
-          <span>C:\&gt; ENTER_TOKEN_ID:</span>
-          <div className="relative">
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputVal}
-              onChange={handleInputChange}
-              className="bg-transparent border-none outline-none w-24 caret-transparent uppercase p-0 m-0 font-inherit text-inherit"
-              autoFocus
-            />
-            <span className="absolute top-0 left-0 pointer-events-none flex items-center h-full">
-              {inputVal}
-              <span className="animate-blink inline-block bg-current w-[0.6em] h-[1em] ml-1"></span>
-            </span>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <span>C:\&gt; ENTER_TOKEN_ID:</span>
+            <div className="relative">
+              <input
+                ref={inputRef}
+                type="text"
+                value={inputVal}
+                onChange={handleInputChange}
+                className="bg-transparent border-none outline-none w-24 caret-transparent uppercase p-0 m-0 font-inherit text-inherit"
+                autoFocus
+              />
+              <span className="absolute top-0 left-0 pointer-events-none flex items-center h-full">
+                {inputVal}
+                <span className="animate-blink inline-block bg-current w-[0.6em] h-[1em] ml-1"></span>
+              </span>
+            </div>
           </div>
+          {errorMsg && (
+             <div className="text-red-500 animate-pulse text-base">
+               >> SYSTEM_ERROR: {errorMsg}
+             </div>
+          )}
         </form>
       </div>
 
@@ -257,13 +273,18 @@ function App() {
           {/* ACTION BUTTONS */}
           {!loading && gridData && (
             <div className="flex flex-col gap-2 mt-4 pt-4 border-t border-current border-dashed">
-              <div className="flex gap-4 mb-2">
+              <div className="flex flex-col gap-1 mb-4 border-b border-current pb-2">
                  <button 
                   onClick={() => setOutputMode(outputMode === "BLOCKS" ? "BRAILLE" : "BLOCKS")}
-                  className="text-sm opacity-70 hover:opacity-100"
+                  className="text-left text-sm hover:opacity-100 opacity-70"
                  >
                    [MODE: {outputMode}]
                  </button>
+                 <span className="text-xs opacity-50 italic">
+                   {outputMode === "BLOCKS" 
+                     ? ">> USE FOR DISCORD / DESKTOP (LARGE GRID)" 
+                     : ">> USE FOR TWITTER / MOBILE (COMPRESSED BRAILLE)"}
+                 </span>
               </div>
 
               <button 
