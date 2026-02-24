@@ -1,76 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// --- NORMIE PROTOCOL DECODER ---
-// Decodes 200 bytes (1600 bits) into a flat array of 0s and 1s
-// Format: 40x40, 1 bit per pixel, MSB first
-const decodeNormieData = (uint8Array) => {
-  const pixels = [];
-  for (let y = 0; y < 40; y++) {
-    for (let x = 0; x < 40; x++) {
-      const flatIndex = y * 40 + x;
-      const byteIndex = flatIndex >> 3;      // integer division by 8
-      const bitPos = 7 - (flatIndex & 7);    // MSB first
-      
-      const byte = uint8Array[byteIndex];
-      const pixel = (byte >> bitPos) & 1;
-      
-      pixels.push(pixel);
-    }
-  }
-  return pixels; // Returns Array(1600) of 0 or 1
-};
-
-// --- MOCK DATA GENERATOR (Simulates API Response) ---
-// Generates a Uint8Array(200) representing a 40x40 image
-const generateMockBytes = (seed) => {
-  const bytes = new Uint8Array(200);
-  const numSeed = parseInt(seed) || 1234;
-  
-  // Draw a pattern directly into bits
-  for (let i = 0; i < 1600; i++) {
-    const x = i % 40;
-    const y = Math.floor(i / 40);
-    
-    // Simple generative art logic
-    const cx = 20;
-    const cy = 20;
-    const dist = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
-    
-    let isPixelOn = 0;
-    
-    // Pattern: Rings + "Glitch" noise based on seed
-    if (dist < 18 && dist > 2) {
-       if (Math.floor(dist) % 2 === 0) isPixelOn = 1;
-    }
-    // Add some random noise
-    if (((x * y) + numSeed) % 17 === 0) isPixelOn = 1;
-    
-    // Border
-    if (x === 0 || x === 39 || y === 0 || y === 39) isPixelOn = 1;
-
-    // Write bit to byte array
-    if (isPixelOn) {
-      const byteIndex = i >> 3;
-      const bitPos = 7 - (i & 7);
-      bytes[byteIndex] |= (1 << bitPos);
-    }
-  }
-  return bytes;
-};
-
-const MOCK_TRAITS = [
-  { label: "TYPE", value: "UNDEAD" },
-  { label: "EYES", value: "LASER_RED" },
-  { label: "ACCESSORY", value: "VR_HEADSET" },
-  { label: "MOUTH", value: "GRIN" },
-  { label: "BACKGROUND", value: "VOID" }
-];
+// --- API ENDPOINTS ---
+const API_BASE = "https://api.normies.art";
 
 function App() {
   const [inputVal, setInputVal] = useState("");
   const [gridData, setGridData] = useState(null); // Array of 1600 ints (0 or 1)
   const [loading, setLoading] = useState(false);
   const [traitsLog, setTraitsLog] = useState([]);
+  const [fullTraits, setFullTraits] = useState([]); // Store fetched traits to type out
   const [isNoir, setIsNoir] = useState(false);
   const inputRef = useRef(null);
 
@@ -96,41 +34,67 @@ function App() {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!inputVal) return;
     
     setLoading(true);
     setGridData(null);
     setTraitsLog([]);
+    setFullTraits([]);
 
-    // Simulate API Latency
-    setTimeout(() => {
-      // 1. Get raw bytes (simulating API fetch of 200 bytes)
-      const rawBytes = generateMockBytes(inputVal);
-      
-      // 2. Decode using the specified formula
-      const decodedPixels = decodeNormieData(rawBytes);
-      
-      setGridData(decodedPixels);
-      setLoading(false);
-      startTraitTyping();
-    }, 1000);
+    try {
+        // Parallel Fetch: Pixels & Traits
+        const [pixelsRes, traitsRes] = await Promise.all([
+            fetch(`${API_BASE}/normie/${inputVal}/pixels`),
+            fetch(`${API_BASE}/normie/${inputVal}/traits`)
+        ]);
+
+        if (!pixelsRes.ok || !traitsRes.ok) throw new Error("DATA_CORRUPT");
+
+        // 1. Process Pixels (text/plain string of 1600 chars)
+        const pixelsText = await pixelsRes.text();
+        // Convert "00101" string to [0, 0, 1, 0, 1] integer array
+        const pixelsArray = pixelsText.split('').map(char => parseInt(char, 10));
+
+        // 2. Process Traits (JSON)
+        const traitsJson = await traitsRes.json();
+        const formattedTraits = traitsJson.attributes.map(attr => ({
+            label: attr.trait_type.toUpperCase(),
+            value: attr.value.toString().toUpperCase()
+        }));
+
+        // Render Start
+        setGridData(pixelsArray);
+        setFullTraits(formattedTraits);
+        setLoading(false);
+        
+        // Start typing effect after data is ready
+        startTraitTyping(formattedTraits);
+
+    } catch (err) {
+        console.error(err);
+        setLoading(false);
+        alert("ERROR: TOKEN_ID_NOT_FOUND_ON_CHAIN");
+        setInputVal("");
+    }
   };
 
-  const startTraitTyping = () => {
+  const startTraitTyping = (traitsToType) => {
     let index = 0;
+    // Clear any existing log first
+    setTraitsLog([]);
+    
     const interval = setInterval(() => {
-      if (index >= MOCK_TRAITS.length) {
+      if (index >= traitsToType.length) {
         clearInterval(interval);
         return;
       }
-      setTraitsLog(prev => {
-          if (prev.length > index) return prev;
-          return [...prev, MOCK_TRAITS[index]];
-      });
+      // Capture current trait to add
+      const currentTrait = traitsToType[index];
+      setTraitsLog(prev => [...prev, currentTrait]);
       index++;
-    }, 300); 
+    }, 200); // Fast typing speed
   };
 
   const copyToClipboard = () => {
@@ -146,7 +110,9 @@ function App() {
   };
 
   const postToX = () => {
-    const text = `NORMIE #${inputVal} DETECTED.\n\nTYPE: ${MOCK_TRAITS[0].value}\n\nVia NORMIE_OS v1.0.0`;
+    // Safety check if traits haven't loaded
+    const typeTrait = fullTraits.find(t => t.label === "TYPE")?.value || "UNKNOWN";
+    const text = `NORMIE #${inputVal} DETECTED.\n\nTYPE: ${typeTrait}\n\nVia NORMIE_OS v1.0.0`;
     const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
   };
@@ -199,7 +165,7 @@ function App() {
         <div className="border-2 border-current p-2 w-full md:w-auto flex justify-center bg-black/5 min-h-[340px]">
           {loading ? (
             <div className="w-[320px] h-[320px] flex items-center justify-center animate-pulse">
-              LOADING_DATA_CHUNKS...
+              ACCESSING_CHAIN_DATA...
             </div>
           ) : gridData ? (
             // FORCE EXACT GRID DIMENSIONS
@@ -245,7 +211,7 @@ function App() {
               </div>
             ))}
             
-            {!loading && traitsLog.length === MOCK_TRAITS.length && (
+            {!loading && fullTraits.length > 0 && traitsLog.length === fullTraits.length && (
               <div className="mt-4 animate-pulse">> END_OF_FILE</div>
             )}
           </div>
